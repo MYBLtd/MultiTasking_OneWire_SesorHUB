@@ -125,6 +125,13 @@ void WebServer::setupApiRoutes() {
         }
     );
 
+    // Aux display endpoint
+    server.on("/api/aux_display", HTTP_GET, 
+        [this](AsyncWebServerRequest *request) { 
+            handleAuxDisplayRequest(request); 
+        }
+    );
+
     // Preferences endpoints
     server.on("/api/preferences", HTTP_GET, 
         [this](AsyncWebServerRequest *request) {
@@ -253,3 +260,17 @@ void WebServer::stringToAddress(const char* str, uint8_t* address) {
     }
 }
 
+void WebServer::handleAuxDisplayRequest(AsyncWebServerRequest *request) {
+    AsyncJsonResponse *response = new AsyncJsonResponse(false, 128);
+    JsonObject root = response->getRoot();
+    
+    root["temperature"] = lastAuxDisplayTemp;
+    root["timestamp"] = millis();
+
+    response->setLength();
+    request->send(response);
+}
+
+void WebServer::updateAuxDisplayTemp(float temp) {
+    lastAuxDisplayTemp = temp;
+}

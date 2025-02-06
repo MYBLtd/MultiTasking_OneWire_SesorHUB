@@ -12,7 +12,7 @@ class WebServer {
 public:
     WebServer(OneWireManager& owManager);
     void begin();
-
+    void updateAuxDisplayTemp(float temp);
 private:
     AsyncWebServer server;
     OneWireManager& oneWireManager;
@@ -32,4 +32,7 @@ private:
 
     void sendErrorResponse(AsyncWebServerRequest* request, int code, const String& message);
     void sendJsonResponse(AsyncWebServerRequest* request, const String& json);
+
+    void handleAuxDisplayRequest(AsyncWebServerRequest* request);
+    float lastAuxDisplayTemp;  // Store latest MQTT value
 };
