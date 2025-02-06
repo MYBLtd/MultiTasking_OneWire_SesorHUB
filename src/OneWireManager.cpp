@@ -83,15 +83,13 @@ bool OneWireManager::checkAndCollectTemperatures() {
             if (updated.consecutiveErrors > MAX_RETRIES) {
                 updated.valid = false;
             }
+            // Keep last valid reading but mark as invalid
+            updated.temperature = updated.lastValidReading;
             success = false;
         }
         updatedList.push_back(std::move(updated));
-        Logger::debug("Read temperature for sensor " + 
-                     addressToString(sensor.address) + ": " + 
-                     String(temp, 2) + "°C");
     }
     
-    // Update all sensors atomically
     sensorList = std::move(updatedList);
     conversionInProgress = false;
     
@@ -313,3 +311,24 @@ String OneWireManager::addressToString(const uint8_t* address) const {
     return String(buffer);
 }
 
+float OneWireManager::getCachedTemperature(const uint8_t* address) {
+    if (!verifyMutex() || !sensorMutex) return DEVICE_DISCONNECTED_C;
+    
+    float temp = DEVICE_DISCONNECTED_C;
+    if (xSemaphoreTake(sensorMutex, pdMS_TO_TICKS(100)) == pdTRUE) {
+        for (const auto& sensor : sensorList) {
+            if (memcmp(sensor.address, address, 8) == 0) {
+                // Return last valid reading if recent, otherwise return current temp
+                if (!sensor.valid && (millis() - sensor.lastReadTime) < 60000) {
+                    temp = sensor.lastValidReading;
+                } else {
+                    temp = sensor.temperature;
+                }
+                break;
+            }
+        }
+        xSemaphoreGive(sensorMutex);
+    }
+    
+    return temp;
+}

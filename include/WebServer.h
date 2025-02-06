@@ -13,6 +13,7 @@ public:
     WebServer(OneWireManager& owManager);
     void begin();
     void updateAuxDisplayTemp(float temp);
+    void setAuxDisplaySensor(const String& sensorId); 
 private:
     AsyncWebServer server;
     OneWireManager& oneWireManager;
@@ -35,4 +36,5 @@ private:
 
     void handleAuxDisplayRequest(AsyncWebServerRequest* request);
     float lastAuxDisplayTemp;  // Store latest MQTT value
+    String auxDisplaySensorId;  // Store sensor ID for aux display
 };

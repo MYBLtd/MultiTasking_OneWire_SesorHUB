@@ -30,6 +30,7 @@ public:
     // Data access
     const std::vector<TemperatureSensor>& getSensorList() const;
     String addressToString(const uint8_t* address) const;
+    float getCachedTemperature(const uint8_t* address);
 
 private:
     static constexpr int MAX_RETRIES = 3;

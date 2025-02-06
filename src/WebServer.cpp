@@ -204,33 +204,6 @@ void WebServer::handleSensorsRequest(AsyncWebServerRequest *request) {
     }
 }
 
-JsonObject WebServer::createSensorJson(JsonArray& array, const TemperatureSensor& sensor) {
-    JsonObject obj = array.createNestedObject();
-    
-    // Access the address directly from the sensor struct
-    String addr = addressToString(sensor.address);
-    obj["address"] = addr;
-    
-    // Get the sensor name using the address
-    String name = PreferencesManager::getSensorName(sensor.address);
-    if (name.length() > 0) {
-        obj["name"] = name;
-    }
-    
-    // Access temperature data directly from the sensor struct
-    obj["temperature"] = sensor.valid ? sensor.temperature : DEVICE_DISCONNECTED_C;
-    obj["valid"] = sensor.valid;
-    obj["lastReadTime"] = sensor.lastReadTime;
-    
-    Logger::debug("Added sensor: " + addr + 
-                 (name.length() > 0 ? " (" + name + ")" : "") +
-                 ", temp: " + String(sensor.temperature, 2) + 
-                 ", valid: " + String(sensor.valid) + 
-                 ", time: " + String(sensor.lastReadTime));
-                 
-    return obj;
-}
-
 void WebServer::handleOptionsRequest(AsyncWebServerRequest *request) {
     AsyncWebServerResponse *response = request->beginResponse(204);
     request->send(response);
@@ -264,13 +237,59 @@ void WebServer::handleAuxDisplayRequest(AsyncWebServerRequest *request) {
     AsyncJsonResponse *response = new AsyncJsonResponse(false, 128);
     JsonObject root = response->getRoot();
     
-    root["temperature"] = lastAuxDisplayTemp;
+    // Find sensor temperature
+    float temp = DEVICE_DISCONNECTED_C;
+    const auto& sensorList = oneWireManager.getSensorList();
+    
+    Logger::info("=== Aux Display Debug ===");
+    Logger::info("Target sensor ID: " + auxDisplaySensorId);
+    Logger::info("Total sensors: " + String(sensorList.size()));
+    
+    uint8_t displaySensorAddr[8];
+    PreferencesManager::getDisplaySensor(displaySensorAddr);
+    String prefSensorId = addressToString(displaySensorAddr);
+    Logger::info("Preference sensor ID: " + prefSensorId);
+    
+    for(const auto& sensor : sensorList) {
+        String addr = addressToString(sensor.address);
+        Logger::info("Checking sensor: " + addr);
+        Logger::info("  - Valid: " + String(sensor.valid));
+        Logger::info("  - Temp: " + String(sensor.temperature));
+        Logger::info("  - LastValid: " + String(sensor.lastValidReading));
+        
+        if (addr == prefSensorId) {
+            temp = (sensor.temperature == DEVICE_DISCONNECTED_C) ? 
+                   sensor.lastValidReading : sensor.temperature;
+            Logger::info("Found match! Using temp: " + String(temp));
+        }
+    }
+    
+    root["temperature"] = temp;
     root["timestamp"] = millis();
+    
+    Logger::info("=== End Debug ===\n");
 
     response->setLength();
     request->send(response);
 }
 
-void WebServer::updateAuxDisplayTemp(float temp) {
-    lastAuxDisplayTemp = temp;
+JsonObject WebServer::createSensorJson(JsonArray& array, const TemperatureSensor& sensor) {
+    JsonObject obj = array.createNestedObject();
+    
+    String addr = addressToString(sensor.address);
+    obj["address"] = addr;
+    
+    String name = PreferencesManager::getSensorName(sensor.address);
+    if (name.length() > 0) {
+        obj["name"] = name;
+    }
+    
+    // Use either current temperature or last valid reading
+    float temp = (sensor.temperature == DEVICE_DISCONNECTED_C) ? sensor.lastValidReading : sensor.temperature;
+    obj["temperature"] = temp;
+    obj["valid"] = sensor.valid;
+    obj["lastValidReading"] = sensor.lastValidReading;  // Include last valid reading
+    obj["lastReadTime"] = sensor.lastReadTime;
+    
+    return obj;
 }
