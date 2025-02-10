@@ -75,16 +75,19 @@ void ControlTask::start() {
                  String(uxTaskPriorityGet(taskHandle)));
 }
 
+
 void ControlTask::taskFunction(void* parameter) {
     TickType_t lastWakeTime = xTaskGetTickCount();
     uint8_t displaySensorAddr[8] = {0};
     uint8_t currentSensorAddr[8] = {0};  // Keep track of current selection
     float lastPublishedTemp = -999.0f;  // Track last published temperature
+    uint32_t lastPublishAttempt = 0;
+    const uint32_t PUBLISH_RETRY_INTERVAL = 5000; // 5 seconds between retries
     
     Logger::info("Control task starting");
     
     while (true) {
-                // Handle relay control messages
+        // Handle relay control messages
         TaskMessage msg;
         while (xQueueReceive(controlQueue, &msg, 0) == pdTRUE) {
             if (msg.type == MessageType::RELAY_CHANGE_REQUEST) {
@@ -153,17 +156,30 @@ void ControlTask::taskFunction(void* parameter) {
                     Logger::debug("Temperature updated: " + String(currentTemp, 1));
                     
                     // Publish to MQTT if temperature changed by 0.1°C or more
-                    if (abs(currentTemp - lastPublishedTemp) >= 0.1f) {
+                    // and enough time has passed since last attempt
+                    uint32_t now = millis();
+                    if ((abs(currentTemp - lastPublishedTemp) >= 0.1f) &&
+                        (now - lastPublishAttempt >= PUBLISH_RETRY_INTERVAL)) {
                         char tempStr[10];
                         snprintf(tempStr, sizeof(tempStr), "%.1f", currentTemp);
-                        NetworkTask::publishToTopic("mqtt_aux_display", tempStr);
-                        lastPublishedTemp = currentTemp;
-                        Logger::debug("Published temperature to MQTT: " + String(tempStr));
+                        
+                        if (NetworkTask::publishToTopic(MQTT_AUX_DISPLAY_TOPIC, tempStr)) {
+                            lastPublishedTemp = currentTemp;
+                            Logger::debug("Published temperature to MQTT: " + String(tempStr));
+                        } else {
+                            Logger::warning("Failed to publish to MQTT, will retry later");
+                        }
+                        lastPublishAttempt = now;
                     }
                 } else {
                     display.showMessage("ERR");
                     Logger::warning("Selected sensor reading invalid");
-                    NetworkTask::publishToTopic("mqtt_aux_display", "error");
+                    
+                    // Try to publish error state
+                    if (millis() - lastPublishAttempt >= PUBLISH_RETRY_INTERVAL) {
+                        NetworkTask::publishToTopic(MQTT_AUX_DISPLAY_TOPIC, "error");
+                        lastPublishAttempt = millis();
+                    }
                 }
                 break;
             }
@@ -186,10 +202,61 @@ void ControlTask::taskFunction(void* parameter) {
                 delay(500);
             } else {
                 display.showMessage("LOST");
-                NetworkTask::publishToTopic("mqtt_aux_display", "lost");
+                if (millis() - lastPublishAttempt >= PUBLISH_RETRY_INTERVAL) {
+                    NetworkTask::publishToTopic(MQTT_AUX_DISPLAY_TOPIC, "lost");
+                    lastPublishAttempt = millis();
+                }
             }
         }
         
         vTaskDelayUntil(&lastWakeTime, pdMS_TO_TICKS(DISPLAY_UPDATE_INTERVAL));
     }
 }
+
+void ControlTask::updateRelayRequest(uint8_t relayId, bool state) {
+    if (relayId >= 2) {
+        Logger::error("Invalid relay ID: " + String(relayId));
+        return;
+    }
+    
+    if (!controlQueue) {
+        Logger::error("Control queue not initialized");
+        return;
+    }
+    
+    TaskMessage msg;
+    msg.type = MessageType::RELAY_CHANGE_REQUEST;
+    msg.data.relayChange.relayId = relayId;
+    msg.data.relayChange.state = state;
+    
+    // Send message to control queue with timeout
+    if (xQueueSend(controlQueue, &msg, pdMS_TO_TICKS(100)) != pdPASS) {
+        Logger::error("Failed to send relay control message to queue");
+    } else {
+        Logger::info("Relay " + String(relayId) + " state change requested to " + 
+                    String(state ? "ON" : "OFF"));
+    }
+}
+
+bool ControlTask::getRelayState(uint8_t relayId) {
+    if (relayId >= 2) {
+        Logger::error("Invalid relay ID in getRelayState: " + String(relayId));
+        return false;
+    }
+    
+    if (!stateMutex) {
+        Logger::error("State mutex not initialized in getRelayState");
+        return false;
+    }
+    
+    bool state = false;
+    if (xSemaphoreTake(stateMutex, pdMS_TO_TICKS(100)) == pdTRUE) {
+        state = relayStates[relayId].actual;
+        xSemaphoreGive(stateMutex);
+    } else {
+        Logger::error("Failed to acquire mutex in getRelayState");
+    }
+    
+    return state;
+}
+

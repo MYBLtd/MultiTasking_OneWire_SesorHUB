@@ -5,6 +5,7 @@
 #include <SPIFFS.h>
 #include <map>  // Added for std::map
 #include "DallasTemperature.h"  // For DEVICE_DISCONNECTED_C
+#include "ControlTask.h"
 
 // Rate limiting implementation using a simple circular buffer
 // This is more memory-efficient than using a map
@@ -118,6 +119,82 @@ void WebServer::setupStaticFiles() {
 }
 
 void WebServer::setupApiRoutes() {
+    // Relay control endpoints
+    AsyncCallbackJsonWebHandler* relay1Handler = new AsyncCallbackJsonWebHandler(
+        "/api/relay/1",
+        [this](AsyncWebServerRequest *request, JsonVariant &json) {
+            if (!json.is<JsonObject>()) {
+                request->send(400, "application/json", "{\"error\":\"Invalid JSON\"}");
+                return;
+            }
+            
+            JsonObject jsonObj = json.as<JsonObject>();
+            if (!jsonObj.containsKey("state")) {
+                request->send(400, "application/json", "{\"error\":\"Missing state parameter\"}");
+                return;
+            }
+            
+            String state = jsonObj["state"].as<String>();
+            state.toUpperCase();
+            
+            if (state != "ON" && state != "OFF") {
+                request->send(400, "application/json", "{\"error\":\"Invalid state value\"}");
+                return;
+            }
+            
+            bool newState = (state == "ON");
+            ControlTask::updateRelayRequest(0, newState);  // Relay 1 is index 0
+            
+            request->send(200, "application/json", 
+                         "{\"success\":true,\"relay\":1,\"state\":\"" + state + "\"}");
+        }
+    );
+
+    AsyncCallbackJsonWebHandler* relay2Handler = new AsyncCallbackJsonWebHandler(
+        "/api/relay/2",
+        [this](AsyncWebServerRequest *request, JsonVariant &json) {
+            if (!json.is<JsonObject>()) {
+                request->send(400, "application/json", "{\"error\":\"Invalid JSON\"}");
+                return;
+            }
+            
+            JsonObject jsonObj = json.as<JsonObject>();
+            if (!jsonObj.containsKey("state")) {
+                request->send(400, "application/json", "{\"error\":\"Missing state parameter\"}");
+                return;
+            }
+            
+            String state = jsonObj["state"].as<String>();
+            state.toUpperCase();
+            
+            if (state != "ON" && state != "OFF") {
+                request->send(400, "application/json", "{\"error\":\"Invalid state value\"}");
+                return;
+            }
+            
+            bool newState = (state == "ON");
+            ControlTask::updateRelayRequest(1, newState);  // Relay 2 is index 1
+            
+            request->send(200, "application/json", 
+                         "{\"success\":true,\"relay\":2,\"state\":\"" + state + "\"}");
+        }
+    );
+
+    relay1Handler->setMaxContentLength(256);
+    relay2Handler->setMaxContentLength(256);
+    
+    server.addHandler(relay1Handler);
+    server.addHandler(relay2Handler);
+
+    // Add OPTIONS handlers for CORS using lambdas
+    server.on("/api/relay/1", HTTP_OPTIONS, [this](AsyncWebServerRequest *request) {
+        this->handleOptionsRequest(request);
+    });
+    
+    server.on("/api/relay/2", HTTP_OPTIONS, [this](AsyncWebServerRequest *request) {
+        this->handleOptionsRequest(request);
+    });
+
     // Sensors endpoint
     server.on("/api/sensors", HTTP_GET, 
         [this](AsyncWebServerRequest *request) { 

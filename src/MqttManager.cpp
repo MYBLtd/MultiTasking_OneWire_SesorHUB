@@ -1,11 +1,12 @@
 // MqttManager.cpp
-
+#include <algorithm>
 #include "MqttManager.h"
 #include <cstring>
+#include "PreferencesManager.h"
 
 MqttManager::MqttManager() 
     : wifiClient()
-    , mqttClient(wifiClient)
+    , mqtt(wifiClient)  // Initialize mqtt with wifiClient
     , mqttBroker("")
     , mqttPort(0)
     , mqttUsername("")
@@ -23,7 +24,7 @@ void MqttManager::begin() {
 }
 
 bool MqttManager::connected() {
-    return mqttClient.connected();
+    return mqtt.connected();
 }
 
 // Main connection maintenance function
@@ -38,7 +39,7 @@ bool MqttManager::maintainConnection() {
         return false;
     }
     
-    mqttClient.loop();
+    mqtt.loop();
     return true;
 }
 void MqttManager::loadConfiguration() {
@@ -59,7 +60,7 @@ void MqttManager::loadConfiguration() {
     
     // Update MQTT client configuration if we have valid settings
     if (mqttBroker.length() > 0 && mqttPort > 0) {
-        mqttClient.setServer(mqttBroker.c_str(), mqttPort);
+        mqtt.setServer(mqttBroker.c_str(), mqttPort);
         Logger::info("MQTT configured with broker: " + mqttBroker + ":" + String(mqttPort), 
                     Logger::Category::NETWORK);
     } else {
@@ -72,8 +73,8 @@ void MqttManager::setupSecureClient() {
     wifiClient.setCACert(letsencrypt_root_ca);
     
     // Configure MQTT client
-    mqttClient.setBufferSize(8192);  // Set a reasonably large buffer for sensor data
-    mqttClient.setSocketTimeout(10);  // 10 seconds socket timeout
+    mqtt.setBufferSize(8192);  // Set a reasonably large buffer for sensor data
+    mqtt.setSocketTimeout(10);  // 10 seconds socket timeout
     
     // Load and apply MQTT configuration
     char broker[MAX_MQTT_SERVER_LENGTH];
@@ -84,7 +85,7 @@ void MqttManager::setupSecureClient() {
     PreferencesManager::getMqttConfig(broker, port, username, password);
     
     if (strlen(broker) > 0 && port > 0) {
-        mqttClient.setServer(broker, port);
+        mqtt.setServer(broker, port);
         Logger::debug("MQTT client configured with broker: " + String(broker));
     }
 }
@@ -103,7 +104,7 @@ bool MqttManager::publish(const char* topic, const char* payload, bool retained)
             delay((1 << retry) * 200);  // 200ms, 400ms, 600ms
         }
 
-        if (mqttClient.publish(topic, payload, retained)) {
+        if (mqtt.publish(topic, payload, retained)) {
             // Give some time for the message to be processed
             delay(50);
             return true;
@@ -115,41 +116,74 @@ bool MqttManager::publish(const char* topic, const char* payload, bool retained)
     return false;
 }
 
+void MqttManager::publishRelayState(uint8_t relayId, bool state) {
+    if (!connected()) {
+        Logger::warning("Not publishing relay state - MQTT disconnected");
+        return;
+    }
+
+    char topicBuffer[128];
+    const char* stateStr = state ? "ON" : "OFF";
+    
+    // Publish state topic
+    snprintf(topicBuffer, sizeof(topicBuffer), 
+             "%s/%s/relay/%d/state",
+             SYSTEM_NAME, DEVICE_ID, relayId + 1);
+    
+    Logger::debug("Publishing relay " + String(relayId + 1) + " state: " + stateStr);
+    publish(topicBuffer, stateStr, true);
+    
+    // Publish availability topic
+    snprintf(topicBuffer, sizeof(topicBuffer), 
+             "%s/%s/relay/%d/availability",
+             SYSTEM_NAME, DEVICE_ID, relayId + 1);
+    
+    publish(topicBuffer, "online", true);
+}
+
 void MqttManager::publishSensorData(const TemperatureSensor& sensor) {
     if (!connected()) {
         Logger::warning("Not publishing sensor data - MQTT disconnected");
         return;
     }
 
-    // Reduced buffer sizes - most payloads are under 100 bytes
-    char statePayload[256];
     char topicBuffer[128];
-    char sensorId[17];
+    char payloadBuffer[64];
+    String sensorId = PreferencesManager::addressToString(sensor.address);  // Use PreferencesManager's method
 
-    // Create more compact JSON to reduce payload size
-    snprintf(statePayload, sizeof(statePayload), 
-             "{\"t\":%.2f,\"ts\":%lu,\"s\":\"%s\"}",
-             sensor.temperature,
-             sensor.lastReadTime,
-             sensor.valid ? "1" : "0");
+
+    // Publish temperature
+    snprintf(topicBuffer, sizeof(topicBuffer), 
+             "%s/%s/%s/%s/temperature",
+             SYSTEM_NAME, DEVICE_ID, MQTT_TOPIC_BASE, sensorId.c_str());
     
-    // Create the sensor ID
-    snprintf(sensorId, sizeof(sensorId), "%02X%02X%02X%02X%02X%02X%02X%02X",
-             sensor.address[0], sensor.address[1], sensor.address[2], sensor.address[3],
-             sensor.address[4], sensor.address[5], sensor.address[6], sensor.address[7]);
-             
-    // Create topic
-    snprintf(topicBuffer, sizeof(topicBuffer), "%s/%s/%s/state",
-             SYSTEM_NAME, MQTT_TOPIC_BASE, sensorId);
+    snprintf(payloadBuffer, sizeof(payloadBuffer), "%.2f", sensor.temperature);
+    publish(topicBuffer, payloadBuffer, true);
+
+    // Publish status
+    snprintf(topicBuffer, sizeof(topicBuffer), 
+             "%s/%s/%s/%s/status",
+             SYSTEM_NAME, DEVICE_ID, MQTT_TOPIC_BASE, sensorId.c_str());
     
-    // Give more time for stack frames to unwind
-    delay(50);  
+    publish(topicBuffer, sensor.valid ? "online" : "error", true);
+
+    // Publish last update time
+    snprintf(topicBuffer, sizeof(topicBuffer), 
+             "%s/%s/%s/%s/last_update",
+             SYSTEM_NAME, DEVICE_ID, MQTT_TOPIC_BASE, sensorId.c_str());
     
-    bool success = publish(topicBuffer, statePayload, true);
+    snprintf(payloadBuffer, sizeof(payloadBuffer), "%lu", sensor.lastReadTime);
+    publish(topicBuffer, payloadBuffer, true);
+}
+
+void MqttManager::publishAuxDisplayData(const TemperatureSensor& sensor) {
+    String topic = String(SYSTEM_NAME) + "/" + 
+                  String(DEVICE_ID) + "/" + 
+                  String(MQTT_AUX_DISPLAY_TOPIC);
     
-    if (!success) {
-        Logger::error("Failed to publish data for sensor " + String(sensorId));
-    }
+    String payload = String(sensor.temperature);
+    mqtt.publish(topic.c_str(), payload.c_str(), true);
+    Logger::debug("Published aux display temperature: " + payload + " to topic: " + topic);
 }
 
 // Private helper methods
@@ -172,23 +206,31 @@ bool MqttManager::reconnect() {
     String clientId = "ESP32-";
     clientId += ETH.macAddress();
     
-    if (mqttClient.connect(clientId.c_str(), 
-                          mqttUsername.c_str(), 
-                          mqttPassword.c_str(),
-                          "status", 
-                          MQTT_QOS, 
-                          true, 
-                          "offline")) {
+    if (mqtt.connect(clientId.c_str(), 
+                    mqttUsername.c_str(), 
+                    mqttPassword.c_str(),
+                    "status", 
+                    MQTT_QOS, 
+                    true, 
+                    "offline")) {
         Logger::info("MQTT Connected successfully", Logger::Category::NETWORK);
         currentReconnectDelay = 0;  // Reset delay on success
+        char topicBuffer[128];
         
-        mqttClient.publish("status", "online", true);
+        for (int i = 0; i < 2; i++) {
+            snprintf(topicBuffer, sizeof(topicBuffer), 
+                     "%s/%s/%s/relay%d/set",
+                     SYSTEM_NAME, DEVICE_ID, MQTT_SWITCH_BASE, i + 1);
+            mqtt.subscribe(topicBuffer);
+        }
+
+        mqtt.publish("status", "online", true);
         return true;
     }
     
     // Create a properly formatted error message
     char message[64];
-    snprintf(message, sizeof(message), "MQTT connection failed, rc=%d", mqttClient.state());
+    snprintf(message, sizeof(message), "MQTT connection failed, rc=%d", mqtt.state());
     Logger::error(message, Logger::Category::NETWORK);
     return false;
 }

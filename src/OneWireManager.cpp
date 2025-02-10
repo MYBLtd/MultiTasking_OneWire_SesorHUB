@@ -147,6 +147,7 @@ bool OneWireManager::processFoundDevices(uint8_t deviceCount,
                                        std::vector<TemperatureSensor>& tempList) {
     bool anyDeviceProcessed = false;
     
+    // Remove the MAX_ONEWIRE_SENSORS limit since we process the display sensor separately
     for (uint8_t i = 0; i < deviceCount; i++) {
         DeviceAddress tempAddr;
         if (sensors.getAddress(tempAddr, i)) {

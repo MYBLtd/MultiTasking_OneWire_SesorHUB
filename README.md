@@ -212,3 +212,41 @@ graph TD
 ## License
 
 BSD 3-Clause License (Modified)
+
+## MQTT structure
+there are several MQTT topic hierarchy standards for IoT devices. 
+One of the most widely adopted is the Home Assistant MQTT discovery format, 
+which provides good organization and self-discovery capabilities. 
+The project implements a clear MQTT topic structure following Home Assistant conventions.
+
+chaoticvolt/                     (root - your system name)
+├── sensorhub1/                  (device identifier)
+│   ├── sensors/                 (sensor group)
+│   │   └── <sensor_id>/         (individual sensor)
+│   │       ├── temperature
+│   │       ├── status
+│   │       └── last_update
+│   ├── switch/                  (relay/switch group)
+│   │   ├── relay1/              (individual relay)
+│   │   │   ├── state            (current state - ON/OFF)
+│   │   │   ├── availability     (online/offline)
+│   │   │   └── set              (control topic - for commands)
+│   │   └── relay2/
+│   │       ├── state
+│   │       ├── availability
+│   │       └── set
+│   └── status                    (device status - online/offline)
+
+On the preferences page is a selector to send one of the sensors data ta a virtual sensor.
+This allows for other devices to follow this sensor. The virtual sensor is named: BabelSensor.
+
+The project defined some alias names for use cases like this:
+- The Babel Sensor – Magically translates whatever sensor the user selects.
+- SensaThing™ – Vaguely important. Does… something. The marketing team is still working on it.
+
+Some more for your own project:
+- Schrödinger’s Sensor – You don’t know what it’s showing until you subscribe. I guess 
+  this is a nice one to code ;-) 
+- The Hitchhiker’s Guide to Telemetry – Now with 100% less panic.
+- The Pan-Galactic Data Blaster – Packs a punch, best enjoyed with a towel in hand.
+- The Infinite Improbability Feed – Somehow always displays the right sensor, against all logic.

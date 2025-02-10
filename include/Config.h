@@ -1,23 +1,24 @@
 // Config.h
 #pragma once
-
 #include <Arduino.h>
 #include <stdint.h>
 
+#define DEVICE_NAME "Chaoticvolt_SensorHUB"
+#define FIRMWARE_VERSION "1.2.3"
+
 // Network Configuration
-#define MDNS_HOSTNAME "sensorHUB"
-#define MDNS_SERVER_NAME "Temperature Monitor"
+#define MDNS_HOSTNAME "sensorhub"
+//#define MDNS_SERVER_NAME "Temperature Monitor"
 
 // MQTT Broker Configuration
-#define SYSTEM_NAME "Chaoticvolt"
-#define MQTT_CLIENT_ID "SensorHUB"
+#define SYSTEM_NAME "chaoticvolt"
+#define DEVICE_ID "sensorhub1"
 #define MQTT_TOPIC_BASE "sensors"
-#define MQTT_STATE_TOPIC "state"
-#define MQTT_RELAY1_SET_TOPIC "relay1"
-#define MQTT_RELAY2_SET_TOPIC "relay2"
-#define SYSTEM_RELAY1_TOPIC "relay1"
-#define SYSTEM_RELAY2_TOPIC "relay2"
-
+#define MQTT_SWITCH_BASE "switch"
+#define MQTT_STATE_TOPIC "status"
+#define MQTT_AVAILABILITY_TOPIC "availability"
+#define MQTT_SET_TOPIC "set"
+#define MQTT_AUX_DISPLAY_TOPIC "sensors/BabelSensor"
 // Pin Configuration
 constexpr uint8_t ONE_WIRE_BUS = 4;
 
@@ -36,12 +37,11 @@ constexpr uint8_t NETWORK_TASK_PRIORITY = 2;
 constexpr uint8_t CONTROL_TASK_PRIORITY = 2;
 
 // Timing Intervals (ms)
-// Timing Intervals (ms)
-constexpr uint32_t SCAN_INTERVAL = 30000;      // Scan for new sensors every 30 seconds
-constexpr uint32_t READ_INTERVAL = 10000;      // Read temperatures every 10 seconds
-constexpr uint32_t WEB_UPDATE_INTERVAL = 2000; // Update web interface every 2 seconds
-constexpr uint32_t MQTT_PUBLISH_INTERVAL = 5000; // Update web interface every 2 seconds
-constexpr uint32_t TASK_INTERVAL = 1000;       // Task loop interval 1 second
+constexpr uint32_t SCAN_INTERVAL = 30000;           // Scan for new sensors every 30 seconds
+constexpr uint32_t READ_INTERVAL = 10000;           // Read temperatures every 10 seconds
+constexpr uint32_t WEB_UPDATE_INTERVAL = 2000;      // Update web interface every 2 seconds
+constexpr uint32_t MQTT_PUBLISH_INTERVAL = 5000;    // Update web interface every 2 seconds
+constexpr uint32_t TASK_INTERVAL = 1000;            // Task loop interval 1 second
 constexpr uint32_t DISPLAY_UPDATE_INTERVAL = 1000;
 
 // System Requirements

@@ -22,11 +22,13 @@ public:
     // Publishing methods
     bool publish(const char* topic, const char* payload, bool retained = true);
     void publishSensorData(const TemperatureSensor& sensor);
+    void publishRelayState(uint8_t relayId, bool state);  // New method
+    void publishAuxDisplayData(const TemperatureSensor& sensor);  // New method
 
 private:
     // Network clients
-    WiFiClientSecure wifiClient;
-    PubSubClient mqttClient;
+    WiFiClientSecure wifiClient;  // Use WiFiClientSecure since you're using setCACert
+    PubSubClient mqtt;
     
     // Connection configuration
     String mqttBroker;

@@ -33,6 +33,7 @@ private:
 
     void sendErrorResponse(AsyncWebServerRequest* request, int code, const String& message);
     void sendJsonResponse(AsyncWebServerRequest* request, const String& json);
+    void handleRelayRequest(AsyncWebServerRequest* request, uint8_t relayId);
 
     void handleAuxDisplayRequest(AsyncWebServerRequest* request);
     float lastAuxDisplayTemp;  // Store latest MQTT value
