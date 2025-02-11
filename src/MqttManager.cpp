@@ -70,7 +70,8 @@ void MqttManager::loadConfiguration() {
 
 void MqttManager::setupSecureClient() {
     // Configure secure WiFi client with the root CA certificate
-    wifiClient.setCACert(letsencrypt_root_ca);
+    //wifiClient.setCACert(letsencrypt_root_ca);
+    wifiClient.setCACert(getLetsEncryptRootCA());
     
     // Configure MQTT client
     mqtt.setBufferSize(8192);  // Set a reasonably large buffer for sensor data

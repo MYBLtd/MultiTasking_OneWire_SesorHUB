@@ -9,4 +9,5 @@
 *.pyo
 *.swp
 .DS_Store
+certificates/
 

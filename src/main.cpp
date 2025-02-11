@@ -11,6 +11,43 @@
 #include <esp_task_wdt.h>
 #include <esp_core_dump.h>
 #include "PreferencesManager.h"
+#include "SslTest.h"
+
+
+void prepareNetworkForSsl() {
+    // Wait for stable network connection
+    uint8_t timeout = 0;
+    while (!ETH.linkUp() && timeout < 30) {  // 30 second timeout
+        Logger::info("Waiting for stable network connection...");
+        delay(1000);
+        timeout++;
+    }
+    
+    if (!ETH.linkUp()) {
+        Logger::error("Network not ready for SSL test");
+        return;
+    }
+    
+    // Give DNS a moment to initialize
+    delay(1000);
+    
+    IPAddress ip = ETH.localIP();
+    Logger::info("Network ready for SSL test");
+    Logger::info("IP: " + ip.toString());
+    Logger::info("DNS: " + ETH.dnsIP().toString());
+}
+
+bool testSslStack() {
+    Logger::info("Testing SSL stack before service initialization");
+    
+    if (!SslTest::runTests()) {
+        Logger::error("SSL stack tests failed");
+        return false;
+    }
+    
+    Logger::info("SSL stack tests passed successfully");
+    return true;
+}
 
 void setup() {
     Serial.begin(115200);
@@ -58,6 +95,14 @@ void setup() {
 
     esp_core_dump_init();
     Logger::info("Core dump initialized");
+    
+    Logger::info("Preparing network for SSL test");
+    prepareNetworkForSsl();
+    
+    if (!testSslStack()) {
+        Logger::error("SSL stack tests failed - halting initialization");
+        return;
+    }
 
     PreferencesManager::init();
     Logger::info("Preferences initialized");
