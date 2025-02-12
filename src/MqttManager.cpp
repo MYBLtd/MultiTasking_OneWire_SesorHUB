@@ -241,3 +241,8 @@ unsigned int MqttManager::getReconnectDelay() {
            INITIAL_RECONNECT_DELAY : 
            min(currentReconnectDelay * 2, MAX_RECONNECT_DELAY);
 }
+
+void MqttManager::setServer(const IPAddress& ip) {
+    mqtt.setServer(ip.toString().c_str(), mqttPort);  // Using the internal PubSubClient instance
+    Logger::debug("MQTT server IP updated to: " + ip.toString());
+}

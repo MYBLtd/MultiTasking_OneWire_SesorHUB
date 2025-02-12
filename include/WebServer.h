@@ -1,41 +1,43 @@
-// WebServer.h
 #pragma once
 
 #include <ESPAsyncWebServer.h>
+#include <ArduinoJson.h>
 #include "OneWireManager.h"
 #include "PreferencesApiHandler.h"
 #include "Logger.h"
 #include "SharedDefinitions.h"
-#include "SystemTypes.h"  // For TemperatureSensor definition
+#include "SystemTypes.h"
+#include "AuthManager.h"  // Add this include
 
 class WebServer {
 public:
     WebServer(OneWireManager& owManager);
     void begin();
-    void updateAuxDisplayTemp(float temp);
-    void setAuxDisplaySensor(const String& sensorId); 
+
 private:
     AsyncWebServer server;
     OneWireManager& oneWireManager;
     PreferencesApiHandler preferencesHandler;
 
+    // Setup methods
     void setupRoutes();
     void setupCorsHeaders();
     void setupStaticFiles();
-    void setupApiRoutes();
-    
+   
+    // Request handlers
     void handleSensorsRequest(AsyncWebServerRequest* request);
     void handleOptionsRequest(AsyncWebServerRequest* request);
-    
-    static String addressToString(const uint8_t* address);
-    static void stringToAddress(const char* str, uint8_t* address);
-    JsonObject createSensorJson(JsonArray& array, const TemperatureSensor& sensor);
+    void handleLoginRequest(AsyncWebServerRequest* request, JsonVariant& json);
+    void handleLogoutRequest(AsyncWebServerRequest* request);
 
+    // Authentication helpers
+    bool isAuthenticatedRequest(AsyncWebServerRequest* request);
+    static String extractToken(AsyncWebServerRequest* request);
+
+    // Helper methods
+    JsonObject createSensorJson(JsonArray& array, const TemperatureSensor& sensor);
     void sendErrorResponse(AsyncWebServerRequest* request, int code, const String& message);
     void sendJsonResponse(AsyncWebServerRequest* request, const String& json);
-    void handleRelayRequest(AsyncWebServerRequest* request, uint8_t relayId);
-
-    void handleAuxDisplayRequest(AsyncWebServerRequest* request);
-    float lastAuxDisplayTemp;  // Store latest MQTT value
-    String auxDisplaySensorId;  // Store sensor ID for aux display
+    static String addressToString(const uint8_t* address);
+    static void stringToAddress(const char* str, uint8_t* address);
 };

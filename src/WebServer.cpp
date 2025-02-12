@@ -1,17 +1,16 @@
 // WebServer.cpp
 #include "WebServer.h"
+#include "AuthManager.h"
 #include <ArduinoJson.h>
 #include <AsyncJson.h>
 #include <SPIFFS.h>
-#include <map>  // Added for std::map
 #include "DallasTemperature.h"  // For DEVICE_DISCONNECTED_C
-#include "ControlTask.h"
-
-// Rate limiting implementation using a simple circular buffer
-// This is more memory-efficient than using a map
+#include <map>
+#define DEBUG
+// Rate limiting implementation using a circular buffer for memory efficiency
 class RateLimiter {
 private:
-    static const size_t MAX_CLIENTS = 10;  // Adjust based on memory constraints
+    static const size_t MAX_CLIENTS = 10;
     struct ClientEntry {
         uint32_t ip;
         unsigned long lastRequest;
@@ -36,7 +35,7 @@ public:
             }
         }
         
-        // Add new client to circular buffer
+        // Add new client using circular buffer
         clients[currentIndex].ip = ipAsInt;
         clients[currentIndex].lastRequest = now;
         currentIndex = (currentIndex + 1) % MAX_CLIENTS;
@@ -46,6 +45,7 @@ public:
 
 // Static rate limiter instance
 static RateLimiter rateLimiter;
+
 WebServer::WebServer(OneWireManager& owManager) 
     : server(80)
     , oneWireManager(owManager)
@@ -54,6 +54,8 @@ WebServer::WebServer(OneWireManager& owManager)
 
 void WebServer::begin() {
     Logger::info("Initializing web server...");
+    
+    // List all files in SPIFFS for debugging
     Logger::info("Files in SPIFFS:");
     File root = SPIFFS.open("/");
     File file = root.openNextFile();
@@ -68,164 +70,64 @@ void WebServer::begin() {
 }
 
 void WebServer::setupRoutes() {
+    // Setup CORS headers first (keeping your existing CORS setup)
     setupCorsHeaders();
-    
-    // Request body handler with size limiting and rate limiting
-    server.onRequestBody([](AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total) {
-        // Size limiting
-        static const size_t MAX_REQUEST_SIZE = 4096;
-        if (total > MAX_REQUEST_SIZE) {
-            request->send(413, "text/plain", "Request entity too large");
-            return;
-        }
 
-        // Connection status check
-        if (!request->client()->canSend()) {
-            request->send(503, "text/plain", "Service unavailable");
-            return;
-        }
-
-        // Rate limiting
-        IPAddress clientIP = request->client()->remoteIP();
-        uint32_t ipAsInt = (uint32_t)clientIP;
-        
-        if (rateLimiter.shouldLimit(ipAsInt, millis(), 1000)) {
-            request->send(429, "text/plain", "Too many requests");
-            return;
-        }
-    });
-
-    setupStaticFiles();
-    setupApiRoutes();
-}
-
-
-void WebServer::setupCorsHeaders() {
-    DefaultHeaders::Instance().addHeader("Access-Control-Allow-Origin", "*");
-    DefaultHeaders::Instance().addHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-    DefaultHeaders::Instance().addHeader("Access-Control-Allow-Headers", "Content-Type");
-    DefaultHeaders::Instance().addHeader("Access-Control-Max-Age", "86400");
-}
-
-void WebServer::setupStaticFiles() {
-    AsyncStaticWebHandler* handler = &server.serveStatic("/", SPIFFS, "/")
-        .setDefaultFile("index.html")
-        .setCacheControl("no-store");
-
-    server.onNotFound([](AsyncWebServerRequest *request){
-        Logger::info("404 Not Found: " + request->url());
-        request->send(404);
-    });
-}
-
-void WebServer::setupApiRoutes() {
-    // Relay control endpoints
-    AsyncCallbackJsonWebHandler* relay1Handler = new AsyncCallbackJsonWebHandler(
-        "/api/relay/1",
-        [this](AsyncWebServerRequest *request, JsonVariant &json) {
-            if (!json.is<JsonObject>()) {
-                request->send(400, "application/json", "{\"error\":\"Invalid JSON\"}");
-                return;
-            }
-            
-            JsonObject jsonObj = json.as<JsonObject>();
-            if (!jsonObj.containsKey("state")) {
-                request->send(400, "application/json", "{\"error\":\"Missing state parameter\"}");
-                return;
-            }
-            
-            String state = jsonObj["state"].as<String>();
-            state.toUpperCase();
-            
-            if (state != "ON" && state != "OFF") {
-                request->send(400, "application/json", "{\"error\":\"Invalid state value\"}");
-                return;
-            }
-            
-            bool newState = (state == "ON");
-            ControlTask::updateRelayRequest(0, newState);  // Relay 1 is index 0
-            
-            request->send(200, "application/json", 
-                         "{\"success\":true,\"relay\":1,\"state\":\"" + state + "\"}");
+    // Set up authentication routes first for login/logout
+    AsyncCallbackJsonWebHandler* loginHandler = new AsyncCallbackJsonWebHandler(
+        "/api/login",
+        [this](AsyncWebServerRequest* request, JsonVariant& json) {
+            handleLoginRequest(request, json);
         }
     );
+    loginHandler->setMaxContentLength(1024);
+    server.addHandler(loginHandler);
 
-    AsyncCallbackJsonWebHandler* relay2Handler = new AsyncCallbackJsonWebHandler(
-        "/api/relay/2",
-        [this](AsyncWebServerRequest *request, JsonVariant &json) {
-            if (!json.is<JsonObject>()) {
-                request->send(400, "application/json", "{\"error\":\"Invalid JSON\"}");
-                return;
-            }
-            
-            JsonObject jsonObj = json.as<JsonObject>();
-            if (!jsonObj.containsKey("state")) {
-                request->send(400, "application/json", "{\"error\":\"Missing state parameter\"}");
-                return;
-            }
-            
-            String state = jsonObj["state"].as<String>();
-            state.toUpperCase();
-            
-            if (state != "ON" && state != "OFF") {
-                request->send(400, "application/json", "{\"error\":\"Invalid state value\"}");
-                return;
-            }
-            
-            bool newState = (state == "ON");
-            ControlTask::updateRelayRequest(1, newState);  // Relay 2 is index 1
-            
-            request->send(200, "application/json", 
-                         "{\"success\":true,\"relay\":2,\"state\":\"" + state + "\"}");
-        }
-    );
+    server.on("/api/logout", HTTP_POST, 
+        [this](AsyncWebServerRequest* request) {
+            handleLogoutRequest(request);
+        });
 
-    relay1Handler->setMaxContentLength(256);
-    relay2Handler->setMaxContentLength(256);
-    
-    server.addHandler(relay1Handler);
-    server.addHandler(relay2Handler);
-
-    // Add OPTIONS handlers for CORS using lambdas
-    server.on("/api/relay/1", HTTP_OPTIONS, [this](AsyncWebServerRequest *request) {
-        this->handleOptionsRequest(request);
-    });
-    
-    server.on("/api/relay/2", HTTP_OPTIONS, [this](AsyncWebServerRequest *request) {
-        this->handleOptionsRequest(request);
-    });
-
-    // Sensors endpoint
+    // Set up protected API routes with direct authentication checks
     server.on("/api/sensors", HTTP_GET, 
-        [this](AsyncWebServerRequest *request) { 
-            handleSensorsRequest(request); 
-        }
-    );
+        [this](AsyncWebServerRequest* request) {
+            Logger::debug("Handling /api/sensors request");
+            if (!isAuthenticatedRequest(request)) {
+                Logger::warning("Unauthorized sensors request");
+                request->send(401);
+                return;
+            }
+            handleSensorsRequest(request);
+        });
 
-    // Aux display endpoint
-    server.on("/api/aux_display", HTTP_GET, 
-        [this](AsyncWebServerRequest *request) { 
-            handleAuxDisplayRequest(request); 
-        }
-    );
-
-    // Preferences endpoints
-    server.on("/api/preferences", HTTP_GET, 
-        [this](AsyncWebServerRequest *request) {
+    server.on("/api/preferences", HTTP_GET,
+        [this](AsyncWebServerRequest* request) {
+            Logger::debug("Handling /api/preferences GET request");
+            if (!isAuthenticatedRequest(request)) {
+                Logger::warning("Unauthorized preferences request");
+                request->send(401);
+                return;
+            }
             try {
-                String jsonResponse = this->preferencesHandler.handleGet();
+                String jsonResponse = preferencesHandler.handleGet();
+                Logger::debug("Preferences response: " + jsonResponse);
                 sendJsonResponse(request, jsonResponse);
             } catch (const std::exception& e) {
-                Logger::error("Exception in preferences GET API: " + String(e.what()));
+                Logger::error("Exception in preferences GET: " + String(e.what()));
                 sendErrorResponse(request, 500, "Internal server error");
             }
-        }
-    );
+        });
 
-    // POST handler for preferences
+    // Add the preferences POST handler
     AsyncCallbackJsonWebHandler* preferencesHandler = new AsyncCallbackJsonWebHandler(
         "/api/preferences",
-        [this](AsyncWebServerRequest *request, JsonVariant &json) {
+        [this](AsyncWebServerRequest* request, JsonVariant& json) {
+            Logger::debug("Handling /api/preferences POST request");
+            if (!isAuthenticatedRequest(request)) {
+                Logger::warning("Unauthorized preferences POST request");
+                request->send(401);
+                return;
+            }
             try {
                 String jsonStr;
                 serializeJson(json, jsonStr);
@@ -238,21 +140,90 @@ void WebServer::setupApiRoutes() {
                     sendErrorResponse(request, 400, "Invalid preferences data");
                 }
             } catch (const std::exception& e) {
-                Logger::error("Exception in preferences POST API: " + String(e.what()));
+                Logger::error("Exception in preferences POST: " + String(e.what()));
                 sendErrorResponse(request, 500, "Internal server error");
             }
         }
     );
-    
     preferencesHandler->setMaxContentLength(1024);
     server.addHandler(preferencesHandler);
 
-    // Handle CORS preflight requests
-    server.on("/api/preferences", HTTP_OPTIONS, 
-        [this](AsyncWebServerRequest *request) { 
-            handleOptionsRequest(request); 
+    // Set up static file handling
+    server.on("/login", HTTP_GET, [](AsyncWebServerRequest *request) {
+        request->send(SPIFFS, "/login.html", "text/html");
+    });
+
+    // Handle all other static files and default routes
+    server.on("/*", HTTP_GET, [this](AsyncWebServerRequest *request) {
+        String path = request->url();
+        Logger::debug("Handling static request: " + path);
+        
+        // Allow direct access to login page
+        if (path == "/login" || path == "/login.html") {
+            request->send(SPIFFS, "/login.html", "text/html");
+            return;
         }
-    );
+        
+        // Check authentication for all other pages
+        if (!isAuthenticatedRequest(request)) {
+            Logger::warning("Unauthorized access attempt to: " + path);
+            request->redirect("/login");
+            return;
+        }
+        
+        // Serve authenticated requests
+        if (path == "/" || path == "/index.html") {
+            request->send(SPIFFS, "/index.html", "text/html");
+        } else if (SPIFFS.exists(path)) {
+            request->send(SPIFFS, path);
+        } else {
+            Logger::warning("File not found: " + path);
+            request->send(404);
+        }
+    });
+}
+
+void WebServer::setupCorsHeaders() {
+    DefaultHeaders::Instance().addHeader("Access-Control-Allow-Origin", "*");
+    DefaultHeaders::Instance().addHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+    DefaultHeaders::Instance().addHeader("Access-Control-Allow-Headers", 
+        "Content-Type, Authorization");
+    DefaultHeaders::Instance().addHeader("Access-Control-Max-Age", "86400");
+}
+
+
+void WebServer::setupStaticFiles() {
+    // Login page - unprotected
+    server.on("/login", HTTP_GET, [](AsyncWebServerRequest *request) {
+        request->send(SPIFFS, "/login.html", "text/html");
+    });
+    
+    // Protected static file handler
+    server.on("/*", HTTP_GET, [this](AsyncWebServerRequest *request) {
+        String path = request->url();
+        
+        // Allow access to login page without authentication
+        if (path == "/login" || path == "/login.html") {
+            request->send(SPIFFS, "/login.html", "text/html");
+            return;
+        }
+        
+        // Check authentication for all other pages
+        if (!isAuthenticatedRequest(request)) {
+            // Redirect to login page
+            request->redirect("/login");
+            return;
+        }
+        
+        // If authenticated, serve the requested file
+        if (SPIFFS.exists(path)) {
+            request->send(SPIFFS, path);
+        } else if (path == "/" || path == "/index.html") {
+            request->send(SPIFFS, "/index.html", "text/html");
+        } else {
+            request->send(404);
+        }
+    });
 }
 
 void WebServer::handleSensorsRequest(AsyncWebServerRequest *request) {
@@ -268,11 +239,6 @@ void WebServer::handleSensorsRequest(AsyncWebServerRequest *request) {
         }
         
         response->setLength();
-        
-        String jsonStr;
-        serializeJsonPretty(response->getRoot(), jsonStr);
-        Logger::debug("Sensors API response: " + jsonStr);
-        
         request->send(response);
         
     } catch (const std::exception& e) {
@@ -281,12 +247,128 @@ void WebServer::handleSensorsRequest(AsyncWebServerRequest *request) {
     }
 }
 
+JsonObject WebServer::createSensorJson(JsonArray& array, const TemperatureSensor& sensor) {
+    JsonObject obj = array.createNestedObject();
+    
+    String addr = addressToString(sensor.address);
+    obj["address"] = addr;
+    
+    String name = PreferencesManager::getSensorName(sensor.address);
+    if (name.length() > 0) {
+        obj["name"] = name;
+    }
+    
+    obj["temperature"] = sensor.valid ? sensor.temperature : DEVICE_DISCONNECTED_C;
+    obj["valid"] = sensor.valid;
+    obj["lastReadTime"] = sensor.lastReadTime;
+    
+    // Check if this sensor is the currently selected BabelSensor
+    uint8_t displaySensorAddr[8];
+    PreferencesManager::getDisplaySensor(displaySensorAddr);
+    if (memcmp(sensor.address, displaySensorAddr, 8) == 0) {
+        obj["isBabelSensor"] = true;
+        obj["babelTemperature"] = sensor.temperature;  // Add this alias for compatibility
+    }
+    
+    Logger::debug("Added sensor: " + addr + 
+                 (name.length() > 0 ? " (" + name + ")" : "") +
+                 ", temp: " + String(sensor.temperature, 2) + 
+                 ", valid: " + String(sensor.valid) +
+                 ", babel: " + String(memcmp(sensor.address, displaySensorAddr, 8) == 0));
+                 
+    return obj;
+}
+
 void WebServer::handleOptionsRequest(AsyncWebServerRequest *request) {
     AsyncWebServerResponse *response = request->beginResponse(204);
     request->send(response);
 }
 
-void WebServer::sendErrorResponse(AsyncWebServerRequest* request, int code, const String& message) {
+void WebServer::handleLoginRequest(AsyncWebServerRequest* request, JsonVariant& json) {
+    JsonObject jsonObj = json.as<JsonObject>();
+    if (!jsonObj.containsKey("username") || !jsonObj.containsKey("password")) {
+        request->send(400, "application/json", "{\"error\":\"Missing credentials\"}");
+        return;
+    }
+
+    String username = jsonObj["username"].as<String>();
+    String password = jsonObj["password"].as<String>();
+
+    if (AuthManager::validateCredentials(username, password)) {
+        String token = AuthManager::createSession(username);
+        AsyncWebServerResponse* response = request->beginResponse(200, "application/json", 
+            "{\"token\":\"" + token + "\"}");
+        response->addHeader("Set-Cookie", 
+            "session=" + token + "; Path=/; SameSite=Strict; HttpOnly");
+        request->send(response);
+        Logger::info("Login successful for user: " + username);
+    } else {
+        Logger::warning("Failed login attempt for user: " + username);
+        request->send(401, "application/json", "{\"error\":\"Invalid credentials\"}");
+    }
+}
+
+void WebServer::handleLogoutRequest(AsyncWebServerRequest* request) {
+    String token = extractToken(request);
+    if (!token.isEmpty()) {
+        AuthManager::revokeSession(token);
+    }
+    
+    AsyncWebServerResponse* response = request->beginResponse(200, "application/json", 
+        "{\"status\":\"logged out\"}");
+    
+    // Clear the session cookie
+    response->addHeader("Set-Cookie", 
+        "session=; Path=/; Expires=Thu, 01 Jan 1970 00:00:00 GMT");
+    
+    request->send(response);
+    Logger::info("User logged out successfully");
+}
+
+bool WebServer::isAuthenticatedRequest(AsyncWebServerRequest* request) {
+    String token = extractToken(request);
+    Logger::debug("Checking auth token: " + (token.isEmpty() ? "empty" : token));
+    
+    if (token.isEmpty()) {
+        Logger::warning("No auth token found");
+        return false;
+    }
+    
+    bool valid = AuthManager::validateSession(token);
+    Logger::debug("Token validation result: " + String(valid ? "valid" : "invalid"));
+    return valid;
+}
+
+String WebServer::extractToken(AsyncWebServerRequest* request) {
+    String token;
+    
+    // Check Authorization header first
+    if (request->hasHeader("Authorization")) {
+        String auth = request->header("Authorization");
+        Logger::debug("Found Authorization header: " + auth);
+        if (auth.startsWith("Bearer ")) {
+            token = auth.substring(7);
+        }
+    }
+    
+    // Check cookie if no Authorization header token
+    if (token.isEmpty() && request->hasHeader("Cookie")) {
+        String cookies = request->header("Cookie");
+        Logger::debug("Found Cookie header: " + cookies);
+        int tokenStart = cookies.indexOf("session=");
+        if (tokenStart >= 0) {
+            tokenStart += 8;  // Length of "session="
+            int tokenEnd = cookies.indexOf(";", tokenStart);
+            if (tokenEnd < 0) tokenEnd = cookies.length();
+            token = cookies.substring(tokenStart, tokenEnd);
+        }
+    }
+    
+    return token;
+}
+
+void WebServer::sendErrorResponse(AsyncWebServerRequest* request, int code, 
+                                const String& message) {
     String errorJson = "{\"error\":\"" + message + "\"}";
     request->send(code, "application/json", errorJson);
 }
@@ -308,65 +390,4 @@ void WebServer::stringToAddress(const char* str, uint8_t* address) {
         char byte[3] = {str[i*2], str[i*2 + 1], '\0'};
         address[i] = strtol(byte, nullptr, 16);
     }
-}
-
-void WebServer::handleAuxDisplayRequest(AsyncWebServerRequest *request) {
-    AsyncJsonResponse *response = new AsyncJsonResponse(false, 128);
-    JsonObject root = response->getRoot();
-    
-    // Find sensor temperature
-    float temp = DEVICE_DISCONNECTED_C;
-    const auto& sensorList = oneWireManager.getSensorList();
-    
-    Logger::info("=== Aux Display Debug ===");
-    Logger::info("Target sensor ID: " + auxDisplaySensorId);
-    Logger::info("Total sensors: " + String(sensorList.size()));
-    
-    uint8_t displaySensorAddr[8];
-    PreferencesManager::getDisplaySensor(displaySensorAddr);
-    String prefSensorId = addressToString(displaySensorAddr);
-    Logger::info("Preference sensor ID: " + prefSensorId);
-    
-    for(const auto& sensor : sensorList) {
-        String addr = addressToString(sensor.address);
-        Logger::info("Checking sensor: " + addr);
-        Logger::info("  - Valid: " + String(sensor.valid));
-        Logger::info("  - Temp: " + String(sensor.temperature));
-        Logger::info("  - LastValid: " + String(sensor.lastValidReading));
-        
-        if (addr == prefSensorId) {
-            temp = (sensor.temperature == DEVICE_DISCONNECTED_C) ? 
-                   sensor.lastValidReading : sensor.temperature;
-            Logger::info("Found match! Using temp: " + String(temp));
-        }
-    }
-    
-    root["temperature"] = temp;
-    root["timestamp"] = millis();
-    
-    Logger::info("=== End Debug ===\n");
-
-    response->setLength();
-    request->send(response);
-}
-
-JsonObject WebServer::createSensorJson(JsonArray& array, const TemperatureSensor& sensor) {
-    JsonObject obj = array.createNestedObject();
-    
-    String addr = addressToString(sensor.address);
-    obj["address"] = addr;
-    
-    String name = PreferencesManager::getSensorName(sensor.address);
-    if (name.length() > 0) {
-        obj["name"] = name;
-    }
-    
-    // Use either current temperature or last valid reading
-    float temp = (sensor.temperature == DEVICE_DISCONNECTED_C) ? sensor.lastValidReading : sensor.temperature;
-    obj["temperature"] = temp;
-    obj["valid"] = sensor.valid;
-    obj["lastValidReading"] = sensor.lastValidReading;  // Include last valid reading
-    obj["lastReadTime"] = sensor.lastReadTime;
-    
-    return obj;
 }

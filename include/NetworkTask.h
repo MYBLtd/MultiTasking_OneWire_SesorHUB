@@ -18,6 +18,8 @@ public:
     static void publishRelayState(uint8_t relayId, bool state);
     static bool publishToTopic(const char* topic, const char* payload);
     static void publishSensorBatch(const std::vector<TemperatureSensor>& sensors, size_t startIdx, size_t count);
+    static bool maintainConnection();  // Add this line
+    
 private:
     static MqttManager mqttManager;
     static OneWireManager& owManager;

@@ -12,7 +12,7 @@
 #include <esp_core_dump.h>
 #include "PreferencesManager.h"
 #include "SslTest.h"
-
+#include "AuthManager.h"
 
 void prepareNetworkForSsl() {
     // Wait for stable network connection
@@ -107,6 +107,9 @@ void setup() {
     PreferencesManager::init();
     Logger::info("Preferences initialized");
 
+    AuthManager::init();  // Add this line
+    Logger::info("Auth Manager initialized");
+
     SystemHealth::init();
     Logger::info("System health initialized");
 
@@ -124,6 +127,9 @@ void setup() {
 
     esp_task_wdt_init(WATCHDOG_TIMEOUT / 3000, true);
     esp_task_wdt_add(nullptr);
+
+    AuthManager::init();
+    
     Logger::info("Setup complete - system running");
 }
 

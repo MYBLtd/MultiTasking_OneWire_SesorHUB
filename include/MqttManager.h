@@ -24,6 +24,7 @@ public:
     void publishSensorData(const TemperatureSensor& sensor);
     void publishRelayState(uint8_t relayId, bool state);  // New method
     void publishAuxDisplayData(const TemperatureSensor& sensor);  // New method
+    void setServer(const IPAddress& ip);  // Add this line
 
 private:
     // Network clients

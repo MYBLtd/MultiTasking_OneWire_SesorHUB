@@ -3,35 +3,50 @@
 #include <Arduino.h>
 
 String PreferencesApiHandler::handleGet() {
-    // Check available heap before starting
-    if (ESP.getFreeHeap() < 8192) {  // Safe minimum for operation
-        Logger::error("Insufficient heap for preferences operation");
-        return "{\"error\":\"insufficient_memory\"}";
+    Logger::debug("Building preferences JSON response");
+    
+    DynamicJsonDocument doc(1024);
+    JsonObject root = doc.to<JsonObject>();
+    
+    // Add MQTT settings
+    JsonObject mqtt = root.createNestedObject("mqtt");
+    
+    // Get MQTT configuration using the correct method
+    char server[MAX_MQTT_SERVER_LENGTH] = {0};
+    char username[MAX_MQTT_CRED_LENGTH] = {0};
+    char password[MAX_MQTT_CRED_LENGTH] = {0};
+    unsigned short port = 0;
+    
+    PreferencesManager::getMqttConfig(server, port, username, password);
+    
+    // Only add values that are properly initialized
+    if (strlen(server) > 0) {
+        mqtt["broker"] = server;
+    }
+    if (port > 0) {
+        mqtt["port"] = port;
+    }
+    if (strlen(username) > 0) {
+        mqtt["username"] = username;
     }
     
-    // Use smaller JSON document size
-    StaticJsonDocument<2048> doc;
+    // Add sensor mappings
+    JsonObject sensors = root.createNestedObject("sensors");
+    const auto& sensorList = oneWireManager.getSensorList();  // Use oneWireManager instead of owManager
     
-    try {
-        JsonObject root = doc.to<JsonObject>();
-        if (root.isNull()) {
-            return "{\"error\":\"json_creation_failed\"}";
+    for (const auto& sensor : sensorList) {
+        String addr = PreferencesManager::addressToString(sensor.address);  // Use PreferencesManager's method
+        String name = PreferencesManager::getSensorName(sensor.address);
+        if (name.length() > 0) {
+            sensors[addr] = name;
         }
-        
-        // Add components one at a time with checks
-        addMqttConfigToJson(root);
-        addScanningConfigToJson(root);
-        addDisplayConfigToJson(root);
-        addSensorNamesToJson(root);
-        
-        String response;
-        serializeJson(doc, response);
-        return response;
-        
-    } catch (const std::exception& e) {
-        Logger::error("Exception in handleGet: " + String(e.what()));
-        return "{\"error\":\"internal_error\"}";
     }
+    
+    String output;
+    serializeJson(doc, output);
+    Logger::debug("Generated preferences JSON: " + output);
+    
+    return output;
 }
 
 void PreferencesApiHandler::addMqttConfigToJson(JsonObject& root) {

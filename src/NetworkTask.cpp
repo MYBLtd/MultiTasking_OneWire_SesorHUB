@@ -227,3 +227,36 @@ bool NetworkTask::publishToTopic(const char* topic, const char* payload) {
         return false;
     }
 }
+
+bool NetworkTask::maintainConnection() {
+    if (!ETH.linkUp()) {
+        Logger::error("Ethernet link down");
+        return false;
+    }
+
+    // Log DNS configuration
+    Logger::info("DNS Server: " + ETH.dnsIP().toString());
+    
+    // Try DNS resolution with retry
+    IPAddress mqttIP;
+    const int DNS_RETRY_COUNT = 3;
+    const int DNS_RETRY_DELAY = 1000;
+    
+    for (int i = 0; i < DNS_RETRY_COUNT; i++) {
+        Logger::debug("DNS lookup attempt " + String(i + 1) + " for mq.cemco.nl");
+        
+        if (WiFi.hostByName("mq.cemco.nl", mqttIP)) {
+            Logger::info("DNS resolved mq.cemco.nl to " + mqttIP.toString());
+            // Update MQTT broker IP
+            mqttManager.setServer(mqttIP);
+            return true;
+        }
+        
+        Logger::warning("DNS lookup failed, attempt " + String(i + 1) + 
+                       ", DNS Server: " + ETH.dnsIP().toString());
+        delay(DNS_RETRY_DELAY);
+    }
+    
+    Logger::error("All DNS lookups failed after " + String(DNS_RETRY_COUNT) + " attempts");
+    return false;
+}

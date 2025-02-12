@@ -313,22 +313,46 @@ String OneWireManager::addressToString(const uint8_t* address) const {
 }
 
 float OneWireManager::getCachedTemperature(const uint8_t* address) {
-    if (!verifyMutex() || !sensorMutex) return DEVICE_DISCONNECTED_C;
+    if (!verifyMutex() || !sensorMutex) {
+        Logger::error("Invalid mutex in getCachedTemperature");
+        return DEVICE_DISCONNECTED_C;
+    }
     
     float temp = DEVICE_DISCONNECTED_C;
     if (xSemaphoreTake(sensorMutex, pdMS_TO_TICKS(100)) == pdTRUE) {
+        // Log the address we're looking for
+        String searchAddr = addressToString(address);
+        Logger::debug("Searching for babel temperature for sensor: " + searchAddr);
+        
+        // Log all available sensors for debugging
+        Logger::debug("Current sensor list:");
+        for (const auto& sensor : sensorList) {
+            String sensorAddr = addressToString(sensor.address);
+            Logger::debug(" - " + sensorAddr + ": " + String(sensor.temperature, 2) + 
+                         " (valid: " + String(sensor.valid) + ")");
+        }
+        
         for (const auto& sensor : sensorList) {
             if (memcmp(sensor.address, address, 8) == 0) {
                 // Return last valid reading if recent, otherwise return current temp
                 if (!sensor.valid && (millis() - sensor.lastReadTime) < 60000) {
                     temp = sensor.lastValidReading;
+                    Logger::debug("Found sensor, using last valid reading: " + String(temp, 2));
                 } else {
                     temp = sensor.temperature;
+                    Logger::debug("Found sensor, using current temperature: " + String(temp, 2));
                 }
                 break;
             }
         }
+        
+        if (temp == DEVICE_DISCONNECTED_C) {
+            Logger::debug("Sensor not found in list");
+        }
+        
         xSemaphoreGive(sensorMutex);
+    } else {
+        Logger::error("Failed to acquire mutex in getCachedTemperature");
     }
     
     return temp;

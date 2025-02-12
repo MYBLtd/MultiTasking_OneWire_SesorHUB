@@ -1,250 +1,125 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" class="h-full">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Temperature Dashboard</title>
-    <link href="https://cdnjs.cloudflare.com/ajax/libs/tailwindcss/2.2.19/tailwind.min.css" rel="stylesheet">
+    <title>Temperature Monitoring Dashboard</title>
+  <!-- Chart.js dependencies -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.7.0/chart.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@2.0.0/dist/chartjs-adapter-date-fns.bundle.min.js"></script>  
+    
+    <!-- Tailwind CSS for styling -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Chart.js for data visualization -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns"></script>
+    
+    <!-- Lucide Icons for modern icons -->
+    <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
+    
+    <!-- Custom Styles -->
     <style>
-        /* We keep the important styling from the original version */
-        .temperature {
-            font-size: 1.2rem;
-            font-weight: 600;
-        }
-        .sensor-card {
+        /* Smooth transitions and hover effects */
+        .dashboard-card {
             transition: all 0.3s ease;
         }
-        .sensor-card:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
-        }
-        .chart-container {
-            position: relative;
-            height: 300px;  /* Slightly reduced for mobile */
-            width: 100%;
-        }
-        canvas {
-            width: 100% !important;
-            height: 100% !important;
+        .dashboard-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
         }
     </style>
 </head>
-<body class="bg-gray-100">
-    <!-- Navigation Bar -->
+<body class="bg-gray-50 h-full flex flex-col">
+    <!-- Navigation -->
     <nav class="bg-white shadow-sm">
-        <div class="max-w-6xl mx-auto px-4">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div class="flex justify-between h-16">
-                <div class="flex space-x-4">
-                    <a href="/" class="flex items-center text-gray-700 hover:text-gray-900">
-                        <span class="font-medium">Dashboard</span>
-                    </a>
-                    <a href="/preferences.html" class="flex items-center text-blue-600">
-                        <span class="font-medium">Preferences</span>
-                    </a>
+                <div class="flex">
+                    <div class="flex-shrink-0 flex items-center">
+                        <h1 class="text-2xl font-bold text-blue-600">
+                            <i data-lucide="thermometer" class="inline-block mr-2"></i>
+                            Temp Monitor
+                        </h1>
+                    </div>
+                </div>
+                <div class="flex items-center space-x-4">
+                    <button id="refreshButton" class="text-gray-500 hover:text-blue-600 transition-colors">
+                        <i data-lucide="refresh-cw" class="h-5 w-5"></i>
+                    </button>
+                    <button id="logoutButton" class="text-gray-500 hover:text-red-600 transition-colors">
+                        <i data-lucide="log-out" class="h-5 w-5"></i>
+                    </button>
                 </div>
             </div>
         </div>
     </nav>
 
-    <!-- Main Content -->
-    <div class="container mx-auto p-4">
-        <!-- Header Section -->
-        <header class="text-center mb-6">
-            <h1 class="text-2xl font-bold text-gray-800">Temperature Monitor</h1>
-            <p class="text-gray-600" id="lastUpdate">Last update: Never</p>
-        </header>
+    <!-- Main Dashboard Content -->
+    <main class="flex-grow container mx-auto px-4 py-6 grid grid-cols-1 md:grid-cols-3 gap-6">
+        <!-- Current Temperature Overview -->
+        <div class="md:col-span-2 grid grid-cols-1 gap-6">
+            <!-- Temperature Chart -->
+            <div class="bg-white rounded-lg shadow-md dashboard-card p-6">
+                <h2 class="text-xl font-semibold mb-4 text-gray-800 flex items-center">
+                    <i data-lucide="line-chart" class="mr-2"></i>
+                    Temperature History
+                </h2>
+                <div class="h-96">
+                    <canvas id="temperatureChart"></canvas>
+                </div>
+            </div>
 
-        <!-- Status Messages -->
-        <div id="statusMessage" class="hidden mb-4 p-4 rounded-lg"></div>
-
-        <!-- Chart Card - Primary Focus -->
-        <div class="bg-white rounded-lg shadow-sm p-4 mb-4">
-            <h2 class="text-lg font-semibold mb-2">Temperature History</h2>
-            <div class="chart-container">
-                <canvas id="temperatureChart"></canvas>
+            <!-- Sensor List -->
+            <div class="bg-white rounded-lg shadow-md dashboard-card p-6">
+                <h2 class="text-xl font-semibold mb-4 text-gray-800 flex items-center">
+                    <i data-lucide="thermometer" class="mr-2"></i>
+                    Sensor Overview
+                </h2>
+                <div id="sensorList" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                    <!-- Sensor cards will be dynamically populated here -->
+                </div>
             </div>
         </div>
 
-        <!-- Current Reading Card -->
-        <div class="bg-white rounded-lg shadow-sm p-4 mb-4">
-            <h2 class="text-lg font-semibold mb-2">Current Reading</h2>
-            <div class="text-center">
-                <div id="currentReading" class="text-3xl font-bold text-blue-600">--.-°C</div>
-                <div id="sensorName" class="text-sm text-gray-600 mt-1">No sensor selected</div>
+        <!-- Sidebar with Controls and Details -->
+        <div class="space-y-6">
+            <!-- Current Reading -->
+            <div class="bg-white rounded-lg shadow-md dashboard-card p-6 text-center">
+                <h2 class="text-xl font-semibold mb-4 text-gray-800">Current Reading</h2>
+                <div id="currentTemperature" class="text-5xl font-bold text-blue-600">
+                    --.-°C
+                </div>
+                <div id="currentSensorName" class="mt-2 text-gray-500">
+                    No sensor selected
+                </div>
+            </div>
+
+            <!-- Sensor Selection -->
+            <div class="bg-white rounded-lg shadow-md dashboard-card p-6">
+                <h2 class="text-xl font-semibold mb-4 text-gray-800">Select Sensor</h2>
+                <select id="sensorSelect" class="w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500">
+                    <option value="">Choose a sensor...</option>
+                </select>
+            </div>
+
+            <!-- Alerts and Notifications -->
+            <div id="alertContainer" class="space-y-2">
+                <!-- Alerts will be dynamically added here -->
             </div>
         </div>
+    </main>
 
-        <!-- Sensor Selection -->
-        <div class="bg-white rounded-lg shadow-sm p-4 mb-4">
-            <h2 class="text-lg font-semibold mb-2">Select Sensor</h2>
-            <select id="sensorSelect" class="w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500">
-                <option value="">Select a sensor...</option>
-            </select>
-        </div>
-
-        <!-- All Sensors Panel -->
-        <div class="bg-white rounded-lg shadow-sm p-4">
-            <h2 class="text-lg font-semibold mb-2">All Sensors</h2>
-            <div id="sensorGrid" class="grid gap-3"></div>
+    <!-- Status Overlay -->
+    <div id="statusOverlay" class="fixed inset-0 bg-black bg-opacity-50 z-50 hidden items-center justify-center">
+        <div class="bg-white p-8 rounded-lg shadow-xl text-center">
+            <div id="statusIcon" class="mx-auto mb-4 w-16 h-16"></div>
+            <h2 id="statusTitle" class="text-2xl font-bold mb-2"></h2>
+            <p id="statusMessage" class="text-gray-600"></p>
         </div>
     </div>
 
-    <script>
-        let sensorHistory = {};
-        let temperatureChart;
-        let selectedSensor = null;
-
-        // Initialize chart with the original successful configuration
-        function initChart() {
-            const ctx = document.getElementById('temperatureChart').getContext('2d');
-            temperatureChart = new Chart(ctx, {
-                type: 'line',
-                data: { labels: [], datasets: [] },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    scales: {
-                        y: {
-                            beginAtZero: false,
-                            title: { display: true, text: 'Temperature (°C)' }
-                        }
-                    },
-                    plugins: { 
-                        legend: { 
-                            position: 'bottom',
-                            display: true
-                        }
-                    }
-                }
-            });
-        }
-
-        function showStatus(message, type = 'error') {
-            const statusDiv = document.getElementById('statusMessage');
-            if (!statusDiv) return;
-            
-            statusDiv.className = `mb-4 p-4 rounded-lg ${type === 'error' ? 'bg-red-50 text-red-700' : 'bg-yellow-50 text-yellow-700'}`;
-            statusDiv.textContent = message;
-            statusDiv.classList.remove('hidden');
-        }
-
-        function updateChart() {
-            if (!temperatureChart) return;
-            const labels = Array.from({ length: 20 }, (_, i) => -i).reverse();
-            const datasets = Object.entries(sensorHistory).map(([address, data], index) => ({
-                label: `Sensor ${address.slice(-4)}`,
-                data: data.map(d => d.temp),
-                borderColor: `hsl(${index * 45}, 70%, 50%)`,
-                tension: 0.4,
-                fill: false
-            }));
-            temperatureChart.data.labels = labels;
-            temperatureChart.data.datasets = datasets;
-            temperatureChart.update();
-        }
-
-        async function refreshSensors() {
-            try {
-                const response = await fetch('/api/sensors');
-                if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
-                
-                const sensors = await response.json();
-                if (!Array.isArray(sensors)) throw new Error('Invalid data format');
-
-                // Update sensor select dropdown
-                const sensorSelect = document.getElementById('sensorSelect');
-                if (sensorSelect && !selectedSensor) {
-                    sensorSelect.innerHTML = '<option value="">Select a sensor...</option>' +
-                        sensors.map(sensor => `
-                            <option value="${sensor.address}">
-                                ${sensor.name || `Sensor ${sensor.address.slice(-4)}`}
-                                (${sensor.valid ? sensor.temperature.toFixed(1) + '°C' : 'Invalid'})
-                            </option>
-                        `).join('');
-                }
-
-                // Update current reading if a sensor is selected
-                if (selectedSensor) {
-                    const currentSensor = sensors.find(s => s.address === selectedSensor);
-                    if (currentSensor?.valid) {
-                        document.getElementById('currentReading').textContent = 
-                            `${currentSensor.temperature.toFixed(1)}°C`;
-                        document.getElementById('sensorName').textContent = 
-                            currentSensor.name || `Sensor ${currentSensor.address.slice(-4)}`;
-                    }
-                }
-
-                // Update sensor grid
-                const sensorGrid = document.getElementById('sensorGrid');
-                if (sensorGrid) {
-                    sensorGrid.innerHTML = '';
-                    sensors.forEach(sensor => {
-                        if (!sensor?.address) return;
-                        
-                        const sensorCard = document.createElement('div');
-                        sensorCard.className = `sensor-card p-3 rounded-lg ${sensor.valid ? 'bg-gray-50' : 'bg-red-50'}`;
-                        
-                        const temp = sensor.temperature === -127 || !sensor.valid ? 'N/A' : sensor.temperature.toFixed(1);
-                        const shortAddress = sensor.address.slice(-4);
-                        
-                        sensorCard.innerHTML = `
-                            <div class="flex justify-between items-center">
-                                <div class="text-sm font-mono text-gray-600">
-                                    ${sensor.name || `Sensor ${shortAddress}`}
-                                </div>
-                                <div class="temperature ${sensor.valid ? 'text-green-600' : 'text-red-600'}">
-                                    ${temp}${temp !== 'N/A' ? '°C' : ''}
-                                </div>
-                            </div>
-                            ${!sensor.valid ? '<div class="text-xs text-red-500 mt-1">Invalid reading</div>' : ''}
-                        `;
-                        
-                        sensorGrid.appendChild(sensorCard);
-
-                        // Update sensor history
-                        if (sensor.valid && temp !== 'N/A') {
-                            if (!sensorHistory[sensor.address]) {
-                                sensorHistory[sensor.address] = [];
-                            }
-                            sensorHistory[sensor.address].push({
-                                time: new Date(),
-                                temp: sensor.temperature
-                            });
-                            if (sensorHistory[sensor.address].length > 20) {
-                                sensorHistory[sensor.address].shift();
-                            }
-                        }
-                    });
-                }
-
-                updateChart();
-                document.getElementById('lastUpdate').textContent = 
-                    'Last update: ' + new Date().toLocaleTimeString();
-                document.getElementById('statusMessage')?.classList.add('hidden');
-                
-            } catch (error) {
-                console.error('Error:', error);
-                showStatus(`Error: ${error.message}`);
-            }
-        }
-
-        // Initialize everything when the DOM is ready
-        document.addEventListener('DOMContentLoaded', () => {
-            initChart();
-            
-            // Set up sensor selection handler
-            const sensorSelect = document.getElementById('sensorSelect');
-            if (sensorSelect) {
-                sensorSelect.addEventListener('change', (e) => {
-                    selectedSensor = e.target.value;
-                    refreshSensors();  // Immediate update
-                });
-            }
-            
-            refreshSensors();
-            setInterval(refreshSensors, 5000);
-        });
-    </script>
+    <!-- Main Application Script -->
+    <script src="/dashboard.js"></script>
 </body>
 </html>
