@@ -100,6 +100,32 @@ void WebServer::setupRoutes() {
             handleSensorsRequest(request);
         });
 
+    server.on("/api/relay", HTTP_GET, 
+        [this](AsyncWebServerRequest* request) {
+            Logger::debug("Handling /api/relay GET request");
+            if (!isAuthenticatedRequest(request)) {
+                Logger::warning("Unauthorized relay status request");
+                request->send(401);
+                return;
+            }
+            handleRelayRequest(request);
+        });
+
+    AsyncCallbackJsonWebHandler* relayHandler = new AsyncCallbackJsonWebHandler(
+        "/api/relay",
+        [this](AsyncWebServerRequest* request, JsonVariant& json) {
+            Logger::debug("Handling /api/relay POST request");
+            if (!isAuthenticatedRequest(request)) {
+                Logger::warning("Unauthorized relay control request");
+                request->send(401);
+                return;
+            }
+            handleRelayControlRequest(request, json);
+        }
+    );
+    relayHandler->setMaxContentLength(1024);
+    server.addHandler(relayHandler);
+
     server.on("/api/preferences", HTTP_GET,
         [this](AsyncWebServerRequest* request) {
             Logger::debug("Handling /api/preferences GET request");
@@ -389,5 +415,56 @@ void WebServer::stringToAddress(const char* str, uint8_t* address) {
     for (int i = 0; i < 8; i++) {
         char byte[3] = {str[i*2], str[i*2 + 1], '\0'};
         address[i] = strtol(byte, nullptr, 16);
+    }
+}
+
+void WebServer::handleRelayRequest(AsyncWebServerRequest* request) {
+    try {
+        AsyncJsonResponse* response = new AsyncJsonResponse(false, 1024);
+        JsonArray array = response->getRoot().to<JsonArray>();
+        
+        for (int i = 0; i < 2; i++) {
+            JsonObject relay = array.createNestedObject();
+            relay["relay_id"] = i;
+            relay["state"] = ControlTask::getRelayState(i);
+            
+            String name = PreferencesManager::getRelayName(i);
+            if (name.length() > 0) {
+                relay["name"] = name;
+            }
+        }
+        
+        response->setLength();
+        request->send(response);
+        
+    } catch (const std::exception& e) {
+        Logger::error("Exception in relay status API: " + String(e.what()));
+        sendErrorResponse(request, 500, "Internal server error");
+    }
+}
+
+void WebServer::handleRelayControlRequest(AsyncWebServerRequest* request, JsonVariant& json) {
+    try {
+        JsonObject jsonObj = json.as<JsonObject>();
+        
+        if (!jsonObj.containsKey("relay_id") || !jsonObj.containsKey("state")) {
+            sendErrorResponse(request, 400, "Missing relay_id or state");
+            return;
+        }
+        
+        int relayId = jsonObj["relay_id"].as<int>();
+        bool state = jsonObj["state"].as<bool>();
+        
+        if (relayId < 0 || relayId > 1) {
+            sendErrorResponse(request, 400, "Invalid relay_id");
+            return;
+        }
+        
+        ControlTask::updateRelayRequest(relayId, state);
+        sendJsonResponse(request, "{\"status\":\"success\"}");
+        
+    } catch (const std::exception& e) {
+        Logger::error("Exception in relay control API: " + String(e.what()));
+        sendErrorResponse(request, 500, "Internal server error");
     }
 }

@@ -8,6 +8,7 @@
 #include "SharedDefinitions.h"
 #include "SystemTypes.h"
 #include "AuthManager.h"  // Add this include
+#include "ControlTask.h" 
 
 class WebServer {
 public:
@@ -29,7 +30,9 @@ private:
     void handleOptionsRequest(AsyncWebServerRequest* request);
     void handleLoginRequest(AsyncWebServerRequest* request, JsonVariant& json);
     void handleLogoutRequest(AsyncWebServerRequest* request);
-
+    void handleRelayRequest(AsyncWebServerRequest* request);
+    void handleRelayControlRequest(AsyncWebServerRequest* request, JsonVariant& json);
+    
     // Authentication helpers
     bool isAuthenticatedRequest(AsyncWebServerRequest* request);
     static String extractToken(AsyncWebServerRequest* request);
